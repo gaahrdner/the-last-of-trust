@@ -23,25 +23,25 @@ The project uses Docker containers to virtualize each component:
 flowchart TB
     subgraph Docker Host
         subgraph "out-of-band network (172.20.0.0/24)"
-            Host["Host Container\n(QEMU x86_64)\nCoreboot+LinuxBoot"]
-            BMC["BMC Container\n(QEMU ARM)\nOpenBMC"]
-            SIEM["SIEM Container\nElasticsearch/Kibana\nLog Aggregation"]
-            Attestation["Attestation Service\nTPM Quote Verification\nBaseline Management"]
-            AIOffensive["AI Security Container\nAutomated Testing\nVulnerability Scanning"]
+            Host["Host Container: (QEMU x86_64) Coreboot+LinuxBoot"]
+            BMC["BMC Container: (QEMU ARM) OpenBMC"]
+            SIEM["SIEM Container: Elasticsearch/Kibana"]
+            Attestation["Attestation Service: TPM Quote Verification, Baseline Management"]
+            AIOffensive["AI Security Container: Automated Testing, Vulnerability Scanning"]
             
             subgraph Host
                 TPM["Virtual TPM (swtpm)"]
-                HostOS["Linux OS\nChipsec\nFalco\nosquery"]
+                HostOS["Linux OS: Chipsec, Falco, osquery"]
             end
         end
         
         subgraph "volumes"
-            FirmwareVol["Firmware Volume\n- coreboot.rom\n- host.img\n- openbmc.mtd"]
-            LogVol["Logs Volume\n- Host logs\n- BMC logs\n- Attestation logs\n- Security scan results"]
+            FirmwareVol["Firmware Volume: coreboot.rom, host.img, openbmc.mtd"]
+            LogVol["Logs Volume: Host logs, BMC logs, Attestation logs, Security scan results"]
         end
     end
     
-    Admin(["Administrator\nWeb Interface"])
+    Admin(["Administrator Web Interface"])
     
     %% Connections
     Host <--> BMC
