@@ -17,6 +17,8 @@ The Last of Trust is a containerized firmware security lab that creates a realis
 
 ## Architecture
 
+The project uses Docker containers to virtualize each component:
+
 ```mermaid
 flowchart TB
     subgraph Docker Host
@@ -63,57 +65,15 @@ flowchart TB
     Admin --> Attestation
     
     %% Styles
-    classDef container fill:#e6f7ff,stroke:#1890ff,stroke-width:2px;
-    classDef volume fill:#f6ffed,stroke:#52c41a,stroke-width:2px;
-    classDef component fill:#f9f0ff,stroke:#722ed1,stroke-width:1px;
-    classDef external fill:#fff7e6,stroke:#fa8c16,stroke-width:2px;
+    classDef container fill:#e6f7ff,stroke:#1890ff,stroke-width:2px
+    classDef volume fill:#f6ffed,stroke:#52c41a,stroke-width:2px
+    classDef component fill:#f9f0ff,stroke:#722ed1,stroke-width:1px
+    classDef external fill:#fff7e6,stroke:#fa8c16,stroke-width:2px
     
-    class Host,BMC,SIEM,Attestation,AIOffensive container;
-    class FirmwareVol,LogVol volume;
-    class TPM,HostOS component;
-    class Admin external;
-
-The project uses Docker containers to virtualize each component:
-
-- **Host Container**: QEMU running Coreboot with LinuxBoot payload and Linux OS
-- **BMC Container**: QEMU running ARM OpenBMC for out-of-band management
-- **TPM Component**: Virtual TPM (swtpm) for measured boot and attestation
-- **Attestation Service**: Verifies host TPM measurements against a trusted baseline
-- **SIEM Container**: ELK stack for log aggregation and security monitoring
-- **Offensive Container**: AI-powered security testing tools to probe for vulnerabilities
-
-All components are interconnected via Docker networks, with special attention to an isolated out-of-band management network between the BMC and host.
-
-## Features
-
-- **Measured Boot**: TPM-backed boot attestation ensures firmware integrity
-- **Out-of-Band Management**: Dedicated network for BMC-to-host management
-- **Continuous Security Scanning**: Periodic Chipsec scans check firmware security
-- **Runtime Security Monitoring**: Falco and osquery detect anomalous behavior
-- **Remote Attestation**: Verification service validates TPM quotes against a baseline
-- **Automated Red Team**: AI-powered offensive security tooling constantly probes for weaknesses
-- **Centralized Monitoring**: All security events and logs flow to a central SIEM
-- **Web Dashboard**: View system security status, attestation results, and detected threats
-
-## Prerequisites
-
-- Docker and Docker Compose
-- 8GB+ RAM recommended
-- 20GB+ free disk space
-- Linux host (for best KVM performance)
-
-## Quick Start
-
-```bash
-# Clone the repository
-git clone https://github.com/your-org/the-last-of-trust.git
-cd the-last-of-trust
-
-# Start the lab environment
-docker-compose up -d
-
-# View the security dashboard
-firefox http://localhost:5601
+    class Host,BMC,SIEM,Attestation,AIOffensive container
+    class FirmwareVol,LogVol volume
+    class TPM,HostOS component
+    class Admin external
 ```
 
 ## Component Details
