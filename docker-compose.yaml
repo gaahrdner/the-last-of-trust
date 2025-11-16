@@ -1,0 +1,79 @@
+name: the-last-of-trust
+
+# Define all networks used in the environment
+networks:
+  # Out-of-band management network for BMC to host communication
+  oob-net:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.100.0.0/24
+
+  # Management network for general host access (optional)
+  mgmt-net:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.101.0.0/24
+
+volumes:
+  host-data:
+  bmc-data:
+  logs-data:
+
+services:
+  # Host system running coreboot/linuxboot and Debian
+  host:
+    build:
+      context: ./Dockerfiles/host
+      dockerfile: Dockerfile
+    container_name: tlot-host
+    networks:
+      oob-net:
+        ipv4_address: 10.100.0.10
+      mgmt-net:
+        ipv4_address: 10.101.0.10
+    volumes:
+      - host-data:/var/lib/host
+      - ./firmware:/firmware
+      - ./logs/host:/logs
+    # Note: privileged mode not strictly needed on macOS (no KVM)
+    # Remove if you encounter issues
+    # privileged: true
+    ports:
+      - "2222:22"     # SSH access to the Debian system
+      - "8080:80"     # HTTP if needed
+    environment:
+      - DEBIAN_VERSION=bullseye
+    # Command is now handled by start_host.sh entrypoint
+
+  # BMC container running OpenBMC
+  bmc:
+    build:
+      context: ./Dockerfiles/bmc
+      dockerfile: Dockerfile
+    container_name: tlot-bmc
+    networks:
+      oob-net:
+        ipv4_address: 10.100.0.20
+      mgmt-net:
+        ipv4_address: 10.101.0.20
+    volumes:
+      - bmc-data:/var/lib/openbmc
+      - ./firmware:/firmware
+      - ./logs/bmc:/logs
+    # Note: privileged mode not strictly needed on macOS (no KVM)
+    # Remove if you encounter issues
+    # privileged: true
+    ports:
+      - "2223:22"     # SSH access to the BMC
+      - "8443:443"    # HTTPS for web interface (changed to avoid conflict)
+      - "8623:623"    # IPMI port (changed to avoid conflict)
+      - "5900:5900"   # VNC for virtual console
+    environment:
+      - MACHINE=qemu-x86
+      - QEMU_MACHINE=q35
+      - QEMU_ARCH=x86_64
+    # Command is now handled by start_openbmc.sh entrypoint

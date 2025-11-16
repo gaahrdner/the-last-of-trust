@@ -1,0 +1,18 @@
+[2025-11-16 19:41:19] Starting Debian image preparation
+[2025-11-16 19:41:19] Creating new Debian disk image...
+[2025-11-16 19:41:19] Downloading Debian installer...
+[2025-11-16 19:41:19] Download failed, trying alternative mirror...
+[2025-11-16 19:42:11] Starting Debian image preparation
+[2025-11-16 19:42:11] Debian disk image already exists at /var/lib/host/debian.qcow2
+[2025-11-16 19:42:11] Security Configuration Recommendations:
+[2025-11-16 19:42:11] 1. Enable Secure Boot in the OS if available
+[2025-11-16 19:42:11] 2. Configure IMA (Integrity Measurement Architecture)
+[2025-11-16 19:42:11] 3. Set up TPM2 tools for attestation
+[2025-11-16 19:42:11] 4. Configure remote logging
+[2025-11-16 19:46:52] Starting Debian image preparation
+[2025-11-16 19:46:52] Debian disk image already exists at /var/lib/host/debian.qcow2
+[2025-11-16 19:46:52] Security Configuration Recommendations:
+[2025-11-16 19:46:52] 1. Enable Secure Boot in the OS if available
+[2025-11-16 19:46:52] 2. Configure IMA (Integrity Measurement Architecture)
+[2025-11-16 19:46:52] 3. Set up TPM2 tools for attestation
+[2025-11-16 19:46:52] 4. Configure remote logging

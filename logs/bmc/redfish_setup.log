@@ -1,0 +1,12 @@
+Waiting for BMC to initialize...
+Redfish not detected on BMC, starting simulation service
+Simulated Redfish service started on port 8080
+IPMI service not detected, setting up simulation
+IPMI simulator started on port 623
+Redfish and IPMI services initialized
+Waiting for BMC to initialize...
+Redfish not detected on BMC, starting simulation service
+Simulated Redfish service started on port 8080
+IPMI service not detected, setting up simulation
+IPMI simulator started on port 623
+Redfish and IPMI services initialized

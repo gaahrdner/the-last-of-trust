@@ -1,0 +1,72 @@
+c[?7l[2J[0mSeaBIOS (version 1.15.0-1)
+
+
+iPXE (https://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+1FF8B1E0+1FECB1E0 CA00
+Press Ctrl-B to configure iPXE (PCI 00:02.0)...                                                                               
+
+
+Booting from Hard Disk...
+Boot failed: not a bootable disk
+
+Booting from DVD/CD...
+Boot failed: Could not read from CDROM (code 0003)
+Booting from ROM...
+iPXE (PCI 00:02.0) starting execution...ok
+iPXE initialising devices...ok
+
+
+
+[0;1miPXE 1.21.1+git-20220113.fbbdc3926-0ubuntu1[0m -- Open Source Network Boot Firmware
+ -- [0;36mhttps://ipxe.org
+[0mFeatures: DNS HTTP HTTPS iSCSI NFS TFTP VLAN AoE ELF MBOOT PXE bzImage Menu PXEX
+T
+
+Press Ctrl-B for the iPXE command line...                                         net0: 52:54:00:12:34:57 using 82540em on 0000:00:02.0 (Ethernet) [open]
+  [Link:up, TX:0 TXE:0 RX:0 RXE:0]
+Configuring (net0 52:54:00:12:34:57)...... ok
+net0: 10.0.2.15/255.255.255.0 gw 10.0.2.2
+net0: fec0::5054:ff:fe12:3457/64 gw fe80::2
+net0: fe80::5054:ff:fe12:3457/64
+Nothing to boot: No such file or directory (https://ipxe.org/2d03e13b)
+No more network devices
+
+Press Ctrl-B for the iPXE command line...                                         Booting from Floppy...
+Boot failed: could not read the boot disk
+
+No bootable device.
+c[?7l[2J[0mSeaBIOS (version 1.15.0-1)
+
+
+iPXE (https://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+1FF8B1E0+1FECB1E0 CA00
+Press Ctrl-B to configure iPXE (PCI 00:02.0)...                                                                               
+
+
+Booting from Hard Disk...
+Boot failed: not a bootable disk
+
+Booting from DVD/CD...
+Boot failed: Could not read from CDROM (code 0003)
+Booting from ROM...
+iPXE (PCI 00:02.0) starting execution...ok
+iPXE initialising devices...ok
+
+
+
+[0;1miPXE 1.21.1+git-20220113.fbbdc3926-0ubuntu1[0m -- Open Source Network Boot Firmware
+ -- [0;36mhttps://ipxe.org
+[0mFeatures: DNS HTTP HTTPS iSCSI NFS TFTP VLAN AoE ELF MBOOT PXE bzImage Menu PXEX
+T
+
+Press Ctrl-B for the iPXE command line...                                         net0: 52:54:00:12:34:57 using 82540em on 0000:00:02.0 (Ethernet) [open]
+  [Link:up, TX:0 TXE:0 RX:0 RXE:0]
+Configuring (net0 52:54:00:12:34:57)...... ok
+net0: 10.0.2.15/255.255.255.0 gw 10.0.2.2
+net0: fec0::5054:ff:fe12:3457/64 gw fe80::2
+net0: fe80::5054:ff:fe12:3457/64
+Nothing to boot: No such file or directory (https://ipxe.org/2d03e13b)
+No more network devices
+
+Press Ctrl-B for the iPXE command line...                                         Booting from Floppy...
+Boot failed: could not read the boot disk
+
+No bootable device.

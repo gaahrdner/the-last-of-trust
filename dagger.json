@@ -1,0 +1,8 @@
+{
+  "name": "the-last-of-trust",
+  "engineVersion": "v0.19.6",
+  "sdk": {
+    "source": "go"
+  },
+  "disableDefaultFunctionCaching": true
+}
