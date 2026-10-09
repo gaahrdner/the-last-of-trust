@@ -1,6 +1,6 @@
 module dagger/the-last-of-trust
 
-go 1.25.3
+go 1.26.0
 
 require (
 	github.com/99designs/gqlgen v0.17.85
@@ -20,7 +20,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.39.0
 	go.opentelemetry.io/otel/trace v1.39.0
 	go.opentelemetry.io/proto/otlp v1.9.0
-	golang.org/x/sync v0.19.0
+	golang.org/x/sync v0.24.0
 	google.golang.org/grpc v1.78.0
 )
 
