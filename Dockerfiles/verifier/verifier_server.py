@@ -19,20 +19,33 @@ import hashlib
 import json
 import os
 import secrets
+import ssl
 import struct
 import subprocess
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HOST_AGENT_URL = os.environ.get("HOST_AGENT_URL", "http://10.101.0.10:8080")
+BMC_URL = os.environ.get("BMC_URL", "https://10.101.0.20:443")
+BMC_USER = os.environ.get("BMC_USER", "root")
+BMC_PASS = os.environ.get("BMC_PASS", "0penBmc")
 PORT = int(os.environ.get("VERIFIER_PORT", "8888"))
 STATE_DIR = Path("/var/lib/verifier")
 BASELINE_FILE = STATE_DIR / "baseline.json"
 AK_PEM_FILE = STATE_DIR / "host_ak.pem"
 DEFAULT_PCRS = "0,1,4,7,8,9,10"
+
+runtime_config = {
+    "auto_quarantine": os.environ.get("AUTO_QUARANTINE", "false").lower() == "true",
+    "attest_interval_seconds": int(os.environ.get("ATTEST_INTERVAL_SECONDS", "0")),
+}
+history_lock = threading.Lock()
+attest_history = []
 
 PCR_DESCRIPTIONS = {
     0: "Firmware / Core Root of Trust (SRTM)",
@@ -218,7 +231,51 @@ BOOT_PCRS = {"0", "1", "4", "7", "8", "9"}
 UNTRUSTED_EXEC_PREFIXES = ("/tmp/", "/var/tmp/", "/home/", "/root/", "/dev/shm/")
 
 
-def attest_host():
+def bmc_request(path, method="POST", payload=None, timeout=10):
+    """Send an authenticated Redfish request to tlot-bmc over mgmt-net."""
+    url = f"{BMC_URL.rstrip('/')}{path}"
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    auth_b64 = base64.b64encode(f"{BMC_USER}:{BMC_PASS}".encode()).decode()
+    headers = {
+        "Authorization": f"Basic {auth_b64}",
+        "Content-Type": "application/json",
+    }
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    ctx = ssl._create_unverified_context()
+    with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def quarantine_host_via_bmc(reason):
+    """Quarantine an untrusted host via BMC Redfish ForceOff + Audit Log."""
+    actions = {}
+    try:
+        actions["audit"] = bmc_request(
+            "/redfish/v1/Managers/bmc/LogServices/Audit/Entries",
+            method="POST",
+            payload={
+                "Name": "Attestation.Failure",
+                "Severity": "Critical",
+                "Message": reason,
+            },
+        )
+    except Exception as exc:
+        actions["audit_error"] = str(exc)
+
+    try:
+        actions["reset"] = bmc_request(
+            "/redfish/v1/Systems/host/Actions/ComputerSystem.Reset",
+            method="POST",
+            payload={"ResetType": "ForceOff"},
+        )
+        actions["quarantined"] = True
+    except Exception as exc:
+        actions["quarantined"] = False
+        actions["reset_error"] = str(exc)
+    return actions
+
+
+def attest_host(quarantine_on_fail=None):
     if not BASELINE_FILE.exists() or not AK_PEM_FILE.exists():
         raise ValueError("Host is not enrolled yet. Call POST /api/v1/enroll first.")
 
@@ -307,6 +364,19 @@ def attest_host():
         and len(boot_pcr_mismatches) == 0
         and len(ima_violations) == 0
     )
+    should_quarantine = (
+        runtime_config["auto_quarantine"]
+        if quarantine_on_fail is None
+        else bool(quarantine_on_fail)
+    )
+    quarantine_result = None
+    if not trusted and should_quarantine:
+        reason = (
+            f"Attestation UNTRUSTED: boot_pcr_mismatches={len(boot_pcr_mismatches)}, "
+            f"ima_violations={len(ima_violations)}, ima_replay_valid={ima_replay_valid}"
+        )
+        quarantine_result = quarantine_host_via_bmc(reason)
+
     result = {
         "timestamp": utc_now(),
         "verdict": "TRUSTED" if trusted else "UNTRUSTED",
@@ -315,6 +385,7 @@ def attest_host():
         "ima_replayed_pcr10": ima_replayed_pcr10,
         "ima_replayed_entries": ima_replayed_entries,
         "eventlog": eventlog_summary,
+        "quarantine": quarantine_result,
         "nonce": nonce,
         "ak_fingerprint_sha256": baseline["ak_fingerprint_sha256"],
         "boot_pcr_mismatches": boot_pcr_mismatches,
@@ -327,9 +398,43 @@ def attest_host():
         "verifier_error": None if sig_ok else (stderr or stdout),
     }
 
+    with history_lock:
+        attest_history.append({
+            "timestamp": result["timestamp"],
+            "verdict": result["verdict"],
+            "nonce": result["nonce"],
+            "ima_pcr10_replay_valid": result["ima_pcr10_replay_valid"],
+            "ima_violations_count": len(ima_violations),
+            "quarantined": bool(quarantine_result and quarantine_result.get("quarantined")),
+        })
+        if len(attest_history) > 100:
+            del attest_history[:-100]
+
     baseline["last_attestation"] = result
     BASELINE_FILE.write_text(json.dumps(baseline, indent=2), encoding="utf-8")
     return result
+
+
+def background_monitor_loop():
+    """Optional continuous attestation loop controlled by attest_interval_seconds."""
+    while True:
+        interval = runtime_config.get("attest_interval_seconds", 0)
+        if interval <= 0:
+            time.sleep(5)
+            continue
+        time.sleep(interval)
+        if not BASELINE_FILE.exists():
+            continue
+        try:
+            res = attest_host()
+            print(
+                f"[tlot-verifier] [monitor] verdict={res['verdict']} "
+                f"ima_replay={res['ima_pcr10_replay_valid']} "
+                f"violations={len(res['ima_violations'])}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"[tlot-verifier] [monitor] error: {exc}", flush=True)
 
 
 class VerifierHandler(BaseHTTPRequestHandler):
@@ -363,6 +468,11 @@ class VerifierHandler(BaseHTTPRequestHandler):
                 self._send_json(200, decode_uefi_eventlog())
             except Exception as exc:
                 self._send_json(502, {"error": str(exc)})
+        elif self.path == "/api/v1/history":
+            with history_lock:
+                self._send_json(200, {"count": len(attest_history), "entries": list(attest_history)})
+        elif self.path == "/api/v1/config":
+            self._send_json(200, runtime_config)
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -377,9 +487,16 @@ class VerifierHandler(BaseHTTPRequestHandler):
                 summary = {k: v for k, v in baseline.items() if k != "ima_baseline"}
                 self._send_json(200, {"status": "enrolled", **summary})
             elif self.path == "/api/v1/attest":
-                result = attest_host()
+                q_flag = body.get("quarantine") if isinstance(body, dict) else None
+                result = attest_host(quarantine_on_fail=q_flag)
                 code = 200 if result["verdict"] == "TRUSTED" else 409
                 self._send_json(code, result)
+            elif self.path == "/api/v1/config":
+                if "auto_quarantine" in body:
+                    runtime_config["auto_quarantine"] = bool(body["auto_quarantine"])
+                if "attest_interval_seconds" in body:
+                    runtime_config["attest_interval_seconds"] = max(0, int(body["attest_interval_seconds"]))
+                self._send_json(200, runtime_config)
             elif self.path == "/api/v1/verify-quote":
                 if not AK_PEM_FILE.exists():
                     raise ValueError("Host is not enrolled yet.")
@@ -405,6 +522,7 @@ class VerifierHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"[tlot-verifier] Starting on 0.0.0.0:{PORT} (host={HOST_AGENT_URL})", flush=True)
+    print(f"[tlot-verifier] Starting on 0.0.0.0:{PORT} (host={HOST_AGENT_URL}, bmc={BMC_URL})", flush=True)
+    threading.Thread(target=background_monitor_loop, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), VerifierHandler)
     server.serve_forever()

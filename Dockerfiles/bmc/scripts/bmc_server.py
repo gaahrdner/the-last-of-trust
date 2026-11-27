@@ -386,6 +386,12 @@ class RedfishHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 record_audit(f"ComputerSystem.Reset:{reset_type}", str(exc), severity="Critical")
                 self._send_json(502, {"error": f"QMP command failed: {exc}"})
+        elif path == "/redfish/v1/Managers/bmc/LogServices/Audit/Entries":
+            action = body.get("Name", "Security.Event")
+            message = body.get("Message", "")
+            severity = body.get("Severity", "Warning")
+            record_audit(action, message, severity=severity)
+            self._send_json(201, audit_entries[-1])
         else:
             self._send_json(404, {"error": f"Unknown Redfish action: {path}"})
 

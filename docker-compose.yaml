@@ -88,6 +88,11 @@ services:
       - "8888:8888"   # Verifier HTTP API
     environment:
       - HOST_AGENT_URL=http://10.101.0.10:8080
+      - BMC_URL=https://10.101.0.20:443
+      - BMC_USER=root
+      - BMC_PASS=0penBmc
+      - AUTO_QUARANTINE=${AUTO_QUARANTINE:-false}
+      - ATTEST_INTERVAL_SECONDS=${ATTEST_INTERVAL_SECONDS:-0}
       - VERIFIER_PORT=8888
     depends_on:
       - host
