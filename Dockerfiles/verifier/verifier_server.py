@@ -15,9 +15,11 @@ Performs real cryptographic remote attestation against tlot-host:
 
 import base64
 import datetime
+import hashlib
 import json
 import os
 import secrets
+import struct
 import subprocess
 import tempfile
 import urllib.error
@@ -86,6 +88,83 @@ def verify_quote_crypto(ak_pem_path, nonce_hex, message_b64, signature_b64, pcrs
             timeout=20,
         )
         return proc.returncode == 0, proc.stdout.strip(), proc.stderr.strip()
+
+
+def replay_ima_pcr10(binary_b64):
+    """
+    Cryptographically replay Linux IMA binary_runtime_measurements into SHA-256 PCR 10.
+    Proves the IMA measurement log matches the TPM-signed PCR 10 digest without omission.
+    """
+    data = base64.b64decode(binary_b64)
+    pcr10 = b"\x00" * 32
+    offset = 0
+    total_len = len(data)
+    entry_count = 0
+
+    while offset + 28 <= total_len:
+        pcr, = struct.unpack_from("<I", data, offset)
+        offset += 4
+        sha1_tmpl = data[offset:offset + 20]
+        offset += 20
+        name_len, = struct.unpack_from("<I", data, offset)
+        offset += 4
+        offset += name_len
+        if offset + 4 > total_len:
+            break
+        data_len, = struct.unpack_from("<I", data, offset)
+        offset += 4
+        tmpl_data = data[offset:offset + data_len]
+        offset += data_len
+
+        if pcr == 10:
+            if sha1_tmpl == b"\x00" * 20:
+                entry_digest = b"\xff" * 32
+            else:
+                entry_digest = hashlib.sha256(tmpl_data).digest()
+            pcr10 = hashlib.sha256(pcr10 + entry_digest).digest()
+            entry_count += 1
+
+    return pcr10.hex(), entry_count
+
+
+def decode_uefi_eventlog():
+    """Fetch and decode the host UEFI TPM 2.0 binary event log via tpm2_eventlog."""
+    ev = http_json(f"{HOST_AGENT_URL}/tpm/eventlog")
+    raw = base64.b64decode(ev["eventlog_b64"])
+    with tempfile.TemporaryDirectory() as td:
+        ev_path = os.path.join(td, "eventlog.bin")
+        Path(ev_path).write_bytes(raw)
+        proc = subprocess.run(
+            ["tpm2_eventlog", ev_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        if proc.returncode != 0:
+            return {
+                "available": True,
+                "decoded": False,
+                "size_bytes": ev["size_bytes"],
+                "sha256": ev["sha256"],
+                "error": proc.stderr.strip(),
+            }
+        # Count events per PCR from YAML output
+        pcr_event_counts = {}
+        total_events = 0
+        for line in proc.stdout.splitlines():
+            s = line.strip()
+            if s.startswith("PCRIndex:"):
+                idx = s.split(":", 1)[1].strip()
+                pcr_event_counts[idx] = pcr_event_counts.get(idx, 0) + 1
+                total_events += 1
+        return {
+            "available": True,
+            "decoded": True,
+            "size_bytes": ev["size_bytes"],
+            "sha256": ev["sha256"],
+            "total_events": total_events,
+            "events_per_pcr": pcr_event_counts,
+        }
 
 
 def enroll_host(pcr_list=DEFAULT_PCRS):
@@ -205,11 +284,37 @@ def attest_host():
                     "actual_hash": fhash,
                 })
 
-    trusted = sig_ok and len(boot_pcr_mismatches) == 0 and len(ima_violations) == 0
+    # Cryptographically replay binary IMA log against quoted PCR 10
+    ima_replay_valid = False
+    ima_replayed_pcr10 = None
+    ima_replayed_entries = 0
+    try:
+        ima_bin = http_json(f"{HOST_AGENT_URL}/ima/binary")
+        ima_replayed_pcr10, ima_replayed_entries = replay_ima_pcr10(ima_bin["binary_b64"])
+        ima_replay_valid = (ima_replayed_pcr10 == actual.get("10"))
+    except Exception:
+        ima_replay_valid = False
+
+    # Decode UEFI TPM 2.0 binary event log
+    try:
+        eventlog_summary = decode_uefi_eventlog()
+    except Exception as exc:
+        eventlog_summary = {"available": False, "decoded": False, "error": str(exc)}
+
+    trusted = (
+        sig_ok
+        and ima_replay_valid
+        and len(boot_pcr_mismatches) == 0
+        and len(ima_violations) == 0
+    )
     result = {
         "timestamp": utc_now(),
         "verdict": "TRUSTED" if trusted else "UNTRUSTED",
         "quote_signature_valid": sig_ok,
+        "ima_pcr10_replay_valid": ima_replay_valid,
+        "ima_replayed_pcr10": ima_replayed_pcr10,
+        "ima_replayed_entries": ima_replayed_entries,
+        "eventlog": eventlog_summary,
         "nonce": nonce,
         "ak_fingerprint_sha256": baseline["ak_fingerprint_sha256"],
         "boot_pcr_mismatches": boot_pcr_mismatches,
@@ -253,11 +358,20 @@ class VerifierHandler(BaseHTTPRequestHandler):
             baseline = json.loads(BASELINE_FILE.read_text(encoding="utf-8"))
             summary = {k: v for k, v in baseline.items() if k != "ima_baseline"}
             self._send_json(200, {"enrolled": True, **summary})
+        elif self.path == "/api/v1/eventlog":
+            try:
+                self._send_json(200, decode_uefi_eventlog())
+            except Exception as exc:
+                self._send_json(502, {"error": str(exc)})
         else:
             self._send_json(404, {"error": "not found"})
 
     def do_POST(self):
         try:
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length) if length > 0 else b"{}"
+            body = json.loads(raw.decode("utf-8") or "{}")
+
             if self.path == "/api/v1/enroll":
                 baseline = enroll_host()
                 summary = {k: v for k, v in baseline.items() if k != "ima_baseline"}
@@ -266,6 +380,22 @@ class VerifierHandler(BaseHTTPRequestHandler):
                 result = attest_host()
                 code = 200 if result["verdict"] == "TRUSTED" else 409
                 self._send_json(code, result)
+            elif self.path == "/api/v1/verify-quote":
+                if not AK_PEM_FILE.exists():
+                    raise ValueError("Host is not enrolled yet.")
+                ok, stdout, stderr = verify_quote_crypto(
+                    AK_PEM_FILE,
+                    body["expected_nonce"],
+                    body["message_b64"],
+                    body["signature_b64"],
+                    body["pcrs_bin_b64"],
+                )
+                code = 200 if ok else 401
+                self._send_json(code, {
+                    "valid": ok,
+                    "expected_nonce": body["expected_nonce"],
+                    "error": None if ok else (stderr or stdout),
+                })
             else:
                 self._send_json(404, {"error": "not found"})
         except ValueError as exc:

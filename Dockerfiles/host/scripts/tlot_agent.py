@@ -29,6 +29,7 @@ AK_PUB_PEM = STATE_DIR / "ak.pem"
 AK_PUB_TSS = STATE_DIR / "ak.pub"
 EVENTLOG_PATH = Path("/sys/kernel/security/tpm0/binary_bios_measurements")
 IMA_LOG_PATH = Path("/sys/kernel/security/ima/ascii_runtime_measurements")
+IMA_BIN_PATH = Path("/sys/kernel/security/ima/binary_runtime_measurements")
 PORT = int(os.environ.get("TLOT_AGENT_PORT", "8080"))
 
 
@@ -203,6 +204,16 @@ class AgentHandler(BaseHTTPRequestHandler):
                 })
             elif self.path.startswith("/ima/log"):
                 self._send_json(200, read_ima_log())
+            elif self.path == "/ima/binary":
+                if not IMA_BIN_PATH.exists():
+                    self._send_json(404, {"error": "IMA binary log not available"})
+                    return
+                raw = IMA_BIN_PATH.read_bytes()
+                self._send_json(200, {
+                    "size_bytes": len(raw),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                    "binary_b64": base64.b64encode(raw).decode(),
+                })
             else:
                 self._send_json(404, {"error": "not found"})
         except Exception as exc:
