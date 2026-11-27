@@ -9,6 +9,8 @@ HOST_ARCH="$(uname -m)"
 VM_MEM="${VM_MEM:-1536}"
 VM_CPUS="${VM_CPUS:-2}"
 DISK_SIZE="${DISK_SIZE:-10G}"
+SECURE_BOOT="${SECURE_BOOT:-false}"
+TLOT_AGENT_TOKEN="${TLOT_AGENT_TOKEN:-}"
 
 mkdir -p "$STATE_DIR/ssh" "$LOGS_DIR" "$FIRMWARE_DIR"
 
@@ -33,19 +35,31 @@ if [ ! -S "$TPM_SOCKET" ]; then
 fi
 log "TPM 2.0 emulator ready (pid=${TPM_PID})"
 
-# 2. Select architecture-appropriate QEMU, UEFI firmware, and Debian cloud image
+# 2. Select architecture-appropriate QEMU, UEFI firmware, and cloud image
 if [ "$HOST_ARCH" = "aarch64" ] || [ "$HOST_ARCH" = "arm64" ]; then
     DEB_ARCH="arm64"
     QEMU_BIN="qemu-system-aarch64"
-    FW_CODE="/usr/share/AAVMF/AAVMF_CODE.fd"
-    FW_VARS_SRC="/usr/share/AAVMF/AAVMF_VARS.fd"
-    FW_NAME="AAVMF (EDK II UEFI ARM64 with TPM 2.0)"
+    if [ "$SECURE_BOOT" = "true" ]; then
+        FW_CODE="/usr/share/AAVMF/AAVMF_CODE.secboot.fd"
+        FW_VARS_SRC="/usr/share/AAVMF/AAVMF_VARS.ms.fd"
+        FW_NAME="AAVMF (EDK II UEFI ARM64 Secure Boot + TPM 2.0)"
+    else
+        FW_CODE="/usr/share/AAVMF/AAVMF_CODE.fd"
+        FW_VARS_SRC="/usr/share/AAVMF/AAVMF_VARS.fd"
+        FW_NAME="AAVMF (EDK II UEFI ARM64 with TPM 2.0)"
+    fi
 else
     DEB_ARCH="amd64"
     QEMU_BIN="qemu-system-x86_64"
-    FW_CODE="/usr/share/OVMF/OVMF_CODE_4M.fd"
-    FW_VARS_SRC="/usr/share/OVMF/OVMF_VARS_4M.fd"
-    FW_NAME="OVMF (EDK II UEFI x86_64 with TPM 2.0)"
+    if [ "$SECURE_BOOT" = "true" ]; then
+        FW_CODE="/usr/share/OVMF/OVMF_CODE_4M.secboot.fd"
+        FW_VARS_SRC="/usr/share/OVMF/OVMF_VARS_4M.ms.fd"
+        FW_NAME="OVMF (EDK II UEFI x86_64 Secure Boot + TPM 2.0)"
+    else
+        FW_CODE="/usr/share/OVMF/OVMF_CODE_4M.fd"
+        FW_VARS_SRC="/usr/share/OVMF/OVMF_VARS_4M.fd"
+        FW_NAME="OVMF (EDK II UEFI x86_64 with TPM 2.0)"
+    fi
 fi
 
 FW_VARS="${STATE_DIR}/efi_vars.fd"
@@ -150,6 +164,7 @@ write_files:
 
       [Service]
       Type=simple
+      Environment="TLOT_AGENT_TOKEN=${TLOT_AGENT_TOKEN}"
       ExecStart=/usr/bin/python3 /usr/local/bin/tlot-agent.py
       Restart=always
       RestartSec=3

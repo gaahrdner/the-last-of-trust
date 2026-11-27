@@ -31,6 +31,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HOST_AGENT_URL = os.environ.get("HOST_AGENT_URL", "http://10.101.0.10:8080")
+HOST_AGENT_TOKEN = os.environ.get("TLOT_AGENT_TOKEN", "")
 BMC_URL = os.environ.get("BMC_URL", "https://10.101.0.20:443")
 BMC_USER = os.environ.get("BMC_USER", "root")
 BMC_PASS = os.environ.get("BMC_PASS", "0penBmc")
@@ -64,7 +65,11 @@ def utc_now():
 
 def http_json(url, method="GET", payload=None, timeout=30):
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    headers = {"Content-Type": "application/json"} if data is not None else {}
+    headers = {}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    if HOST_AGENT_TOKEN:
+        headers["Authorization"] = f"Bearer {HOST_AGENT_TOKEN}"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:

@@ -45,6 +45,8 @@ services:
       - VM_MEM=1536
       - VM_CPUS=2
       - DISK_SIZE=10G
+      - SECURE_BOOT=${SECURE_BOOT:-false}
+      - TLOT_AGENT_TOKEN=${TLOT_AGENT_TOKEN:-}
     restart: unless-stopped
 
   # Out-of-band BMC controller (DMTF Redfish HTTPS API backed by Host QMP)
@@ -88,6 +90,7 @@ services:
       - "8888:8888"   # Verifier HTTP API
     environment:
       - HOST_AGENT_URL=http://10.101.0.10:8080
+      - TLOT_AGENT_TOKEN=${TLOT_AGENT_TOKEN:-}
       - BMC_URL=https://10.101.0.20:443
       - BMC_USER=root
       - BMC_PASS=0penBmc

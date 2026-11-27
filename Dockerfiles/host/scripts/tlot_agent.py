@@ -31,6 +31,20 @@ EVENTLOG_PATH = Path("/sys/kernel/security/tpm0/binary_bios_measurements")
 IMA_LOG_PATH = Path("/sys/kernel/security/ima/ascii_runtime_measurements")
 IMA_BIN_PATH = Path("/sys/kernel/security/ima/binary_runtime_measurements")
 PORT = int(os.environ.get("TLOT_AGENT_PORT", "8080"))
+AGENT_TOKEN = os.environ.get("TLOT_AGENT_TOKEN", "")
+
+
+def check_secure_boot():
+    efivars = Path("/sys/firmware/efi/efivars")
+    if not efivars.exists():
+        return False
+    for p in efivars.glob("SecureBoot-*"):
+        try:
+            raw = p.read_bytes()
+            return len(raw) >= 5 and raw[4] == 1
+        except Exception:
+            return False
+    return False
 
 
 def run_cmd(cmd, timeout=30):
@@ -160,10 +174,21 @@ class AgentHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _check_auth(self):
+        if not AGENT_TOKEN or self.path == "/health":
+            return True
+        auth = self.headers.get("Authorization", "")
+        if auth == f"Bearer {AGENT_TOKEN}":
+            return True
+        self._send_json(401, {"error": "Bearer token required"})
+        return False
+
     def log_message(self, fmt, *args):
         print(f"[tlot-agent] {self.address_string()} - {fmt % args}", flush=True)
 
     def do_GET(self):
+        if not self._check_auth():
+            return
         try:
             if self.path == "/health":
                 tpm_ok = Path("/dev/tpmrm0").exists()
@@ -176,6 +201,8 @@ class AgentHandler(BaseHTTPRequestHandler):
                     "kernel": platform.release(),
                     "tpm_device": tpm_ok,
                     "ima_enabled": ima_ok,
+                    "secure_boot": check_secure_boot(),
+                    "auth_enabled": bool(AGENT_TOKEN),
                     "eventlog_available": EVENTLOG_PATH.exists(),
                     "cmdline": cmdline,
                 })
@@ -220,6 +247,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"error": str(exc)})
 
     def do_POST(self):
+        if not self._check_auth():
+            return
         try:
             length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(length) if length > 0 else b"{}"
