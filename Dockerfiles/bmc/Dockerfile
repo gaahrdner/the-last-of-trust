@@ -1,49 +1,20 @@
-FROM ubuntu:24.04
+FROM python:3.12-slim
 
-# Install dependencies for OpenBMC qemu
-RUN apt-get update && apt-get install -y \
-    git \
-    build-essential \
-    qemu-system-x86 \
-    qemu-utils \
-    python3 \
-    python3-pip \
-    wget \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssl \
     curl \
-    sudo \
-    cpio \
-    libssl-dev \
-    libffi-dev \
-    locales \
-    python3-dev \
-    iputils-ping \
-    net-tools \
-    iproute2 \
-    socat \
-    lksctp-tools \
-    ipmitool \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up locale
-RUN locale-gen en_US.UTF-8
-ENV LANG en_US.UTF-8
-ENV LANGUAGE en_US:en
-ENV LC_ALL en_US.UTF-8
+RUN mkdir -p /opt/bmc /var/lib/bmc /firmware /logs
 
-# Create directory for OpenBMC
-RUN mkdir -p /var/lib/openbmc /build /logs /firmware
+COPY scripts/bmc_server.py /opt/bmc/bmc_server.py
+RUN chmod +x /opt/bmc/bmc_server.py
 
-# Create non-root user for building OpenBMC (optional)
-RUN useradd -m -s /bin/bash openbmc && \
-    echo "openbmc ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/openbmc
+WORKDIR /opt/bmc
 
-# Add helper scripts
-COPY scripts/start_openbmc.sh /build/
-COPY scripts/start_redfish.sh /build/
-RUN chmod +x /build/start_openbmc.sh /build/start_redfish.sh
+EXPOSE 443
 
-# Set working directory
-WORKDIR /build
+HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=5 \
+    CMD curl -skf https://127.0.0.1:443/redfish/v1 || exit 1
 
-# Default command
-ENTRYPOINT ["/build/start_openbmc.sh"]
+ENTRYPOINT ["python3", "/opt/bmc/bmc_server.py"]

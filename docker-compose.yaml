@@ -1,8 +1,7 @@
 name: the-last-of-trust
 
-# Define all networks used in the environment
 networks:
-  # Out-of-band management network for BMC to host communication
+  # Isolated out-of-band management network (BMC <-> Host QMP)
   oob-net:
     driver: bridge
     ipam:
@@ -10,7 +9,7 @@ networks:
       config:
         - subnet: 10.100.0.0/24
 
-  # Management network for general host access (optional)
+  # Management network (Verifier <-> Host Attestation Agent)
   mgmt-net:
     driver: bridge
     ipam:
@@ -21,10 +20,10 @@ networks:
 volumes:
   host-data:
   bmc-data:
-  logs-data:
+  verifier-data:
 
 services:
-  # Host system running coreboot/linuxboot and Debian
+  # Measured-boot host VM (QEMU + EDK2 UEFI TPM2 + swtpm + Debian 12 + IMA)
   host:
     build:
       context: ./Dockerfiles/host
@@ -39,17 +38,16 @@ services:
       - host-data:/var/lib/host
       - ./firmware:/firmware
       - ./logs/host:/logs
-    # Note: privileged mode not strictly needed on macOS (no KVM)
-    # Remove if you encounter issues
-    # privileged: true
     ports:
-      - "2222:22"     # SSH access to the Debian system
-      - "8080:80"     # HTTP if needed
+      - "${HOST_SSH_PORT:-2222}:22"     # SSH into the Debian guest (user: lab / pass: lab)
+      - "${HOST_AGENT_PORT:-8081}:8080" # Host TPM 2.0 & IMA attestation agent API
     environment:
-      - DEBIAN_VERSION=bullseye
-    # Command is now handled by start_host.sh entrypoint
+      - VM_MEM=1536
+      - VM_CPUS=2
+      - DISK_SIZE=10G
+    restart: unless-stopped
 
-  # BMC container running OpenBMC
+  # Out-of-band BMC controller (DMTF Redfish HTTPS API backed by Host QMP)
   bmc:
     build:
       context: ./Dockerfiles/bmc
@@ -61,19 +59,36 @@ services:
       mgmt-net:
         ipv4_address: 10.101.0.20
     volumes:
-      - bmc-data:/var/lib/openbmc
-      - ./firmware:/firmware
+      - bmc-data:/var/lib/bmc
+      - ./firmware:/firmware:ro
       - ./logs/bmc:/logs
-    # Note: privileged mode not strictly needed on macOS (no KVM)
-    # Remove if you encounter issues
-    # privileged: true
     ports:
-      - "2223:22"     # SSH access to the BMC
-      - "8443:443"    # HTTPS for web interface (changed to avoid conflict)
-      - "8623:623"    # IPMI port (changed to avoid conflict)
-      - "5900:5900"   # VNC for virtual console
+      - "8443:443"    # Redfish HTTPS API (root:0penBmc)
     environment:
-      - MACHINE=qemu-x86
-      - QEMU_MACHINE=q35
-      - QEMU_ARCH=x86_64
-    # Command is now handled by start_openbmc.sh entrypoint
+      - HOST_QMP_ADDR=10.100.0.10
+      - HOST_QMP_PORT=4444
+      - BMC_USER=root
+      - BMC_PASS=0penBmc
+    depends_on:
+      - host
+    restart: unless-stopped
+
+  # TPM 2.0 Remote Attestation Verifier (cryptographic tpm2_checkquote + IMA diff)
+  verifier:
+    build:
+      context: ./Dockerfiles/verifier
+      dockerfile: Dockerfile
+    container_name: tlot-verifier
+    networks:
+      mgmt-net:
+        ipv4_address: 10.101.0.30
+    volumes:
+      - verifier-data:/var/lib/verifier
+    ports:
+      - "8888:8888"   # Verifier HTTP API
+    environment:
+      - HOST_AGENT_URL=http://10.101.0.10:8080
+      - VERIFIER_PORT=8888
+    depends_on:
+      - host
+    restart: unless-stopped

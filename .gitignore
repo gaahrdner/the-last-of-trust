@@ -1,5 +1,26 @@
-/dagger.gen.go
-/internal/dagger
-/internal/querybuilder
-/internal/telemetry
-/.env
+# Built firmware and VM images
+firmware/*.rom
+firmware/*.fd
+firmware/*.bin
+firmware/*.qcow2
+firmware/*.iso
+firmware/active-firmware.json
+firmware/build/
+
+# Runtime logs and state
+logs/**/*.log
+logs/**/*.jsonl
+logs/**/*.txt
+*.qcow2
+*.iso
+
+# Local secrets / environment
+.env
+*.pem
+*.key
+
+# OS and editor files
+.DS_Store
+*.swp
+*.swo
+*~

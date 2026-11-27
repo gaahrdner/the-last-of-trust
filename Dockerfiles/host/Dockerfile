@@ -1,46 +1,37 @@
 FROM ubuntu:24.04
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     qemu-system-x86 \
+    qemu-system-arm \
     qemu-utils \
+    ovmf \
+    qemu-efi-aarch64 \
+    swtpm \
+    swtpm-tools \
+    libtpms0 \
+    cloud-image-utils \
+    openssh-client \
     curl \
     wget \
-    git \
-    build-essential \
+    ca-certificates \
     python3 \
-    python3-pip \
-    iasl \
-    m4 \
-    bison \
-    flex \
-    uuid-dev \
-    libncurses-dev \
-    libssl-dev \
-    libelf-dev \
-    net-tools \
-    iputils-ping \
-    swtpm \
-    libtpms0 \
-    tpm-tools \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Install security tools via pip (chipsec, etc can be added later)
-RUN pip3 install --no-cache-dir chipsec || true
+RUN mkdir -p /var/lib/host /firmware /opt/tlot /logs
 
-# Note: osquery and Falco require special repos and can be added post-deployment if needed
+COPY scripts/setup_tpm.sh /opt/tlot/setup_tpm.sh
+COPY scripts/start_host.sh /opt/tlot/start_host.sh
+COPY scripts/tlot_agent.py /opt/tlot/tlot_agent.py
+RUN chmod +x /opt/tlot/setup_tpm.sh /opt/tlot/start_host.sh /opt/tlot/tlot_agent.py
 
-# Create directory structure
-RUN mkdir -p /var/lib/host /firmware /build /logs
+WORKDIR /opt/tlot
 
-# Create a Debian disk image if it doesn't exist
-COPY scripts/create_debian_image.sh /build/
-COPY scripts/start_host.sh /build/
-COPY scripts/setup_tpm.sh /build/
-RUN chmod +x /build/create_debian_image.sh /build/start_host.sh /build/setup_tpm.sh
+EXPOSE 22 8080 4444
 
-# Set working directory
-WORKDIR /build
+HEALTHCHECK --interval=15s --timeout=5s --start-period=120s --retries=10 \
+    CMD curl -sf http://127.0.0.1:8080/health || exit 1
 
-# Default start command
-ENTRYPOINT ["/build/start_host.sh"]
+ENTRYPOINT ["/opt/tlot/start_host.sh"]
