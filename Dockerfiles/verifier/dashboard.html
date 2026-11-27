@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Last of Trust — Live Measured Boot & Attestation Monitor</title>
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --surface: #121826;
+      --surface-2: #182134;
+      --border: #25324a;
+      --text: #e6edf7;
+      --muted: #8b9bb8;
+      --accent: #38bdf8;
+      --green: #22c55e;
+      --green-bg: rgba(34, 197, 94, 0.14);
+      --red: #ef4444;
+      --red-bg: rgba(239, 68, 68, 0.14);
+      --amber: #f59e0b;
+      --amber-bg: rgba(245, 158, 11, 0.14);
+      --purple: #a78bfa;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--sans);
+      background: radial-gradient(circle at top right, #131c31 0%, var(--bg) 55%);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.45;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(11, 15, 23, 0.85);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-icon {
+      width: 34px; height: 34px; border-radius: 8px;
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      display: grid; place-items: center; font-weight: 800; font-size: 16px;
+      box-shadow: 0 0 18px rgba(56, 189, 248, 0.35);
+    }
+    .brand h1 { font-size: 17px; font-weight: 700; letter-spacing: 0.2px; }
+    .brand p { font-size: 12px; color: var(--muted); }
+    .header-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      border: 1px solid var(--border); background: var(--surface);
+    }
+    .pill.ok { color: var(--green); border-color: rgba(34,197,94,0.4); background: var(--green-bg); }
+    .pill.bad { color: var(--red); border-color: rgba(239,68,68,0.4); background: var(--red-bg); }
+    .pill.warn { color: var(--amber); border-color: rgba(245,158,11,0.4); background: var(--amber-bg); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .dot.pulse { animation: pulse 1.8s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.8); } }
+
+    main { max-width: 1440px; margin: 0 auto; padding: 20px 24px 48px; display: grid; gap: 20px; }
+
+    /* Action Bar */
+    .actions {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+      padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    }
+    .actions-group { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .divider { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+    button {
+      background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+      padding: 7px 13px; border-radius: 8px; font-size: 12.5px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 6px;
+    }
+    button:hover:not(:disabled) { border-color: var(--accent); background: #1e2a42; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.primary { background: #0284c7; border-color: #38bdf8; }
+    button.primary:hover:not(:disabled) { background: #0369a1; }
+    button.danger { background: rgba(239,68,68,0.16); border-color: rgba(239,68,68,0.5); color: #fca5a5; }
+    button.danger:hover:not(:disabled) { background: rgba(239,68,68,0.28); }
+    button.success { background: rgba(34,197,94,0.16); border-color: rgba(34,197,94,0.5); color: #86efac; }
+    .toggle-label { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+    /* Trust Chain Visualization */
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 18px;
+    }
+    .card-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 10px;
+    }
+    .card-title { font-size: 14px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; color: var(--muted); }
+
+    .chain {
+      display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; position: relative;
+    }
+    @media (max-width: 1024px) { .chain { grid-template-columns: 1fr; } }
+    .stage {
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px; cursor: pointer; transition: all 0.18s ease; position: relative;
+    }
+    .stage:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .stage.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(56,189,248,0.22); }
+    .stage.ok { border-top: 3px solid var(--green); }
+    .stage.warn { border-top: 3px solid var(--amber); }
+    .stage.bad { border-top: 3px solid var(--red); }
+    .stage-num { font-size: 11px; color: var(--accent); font-family: var(--mono); font-weight: 700; }
+    .stage-name { font-size: 14px; font-weight: 700; margin: 4px 0 6px; }
+    .stage-meta { font-size: 11.5px; color: var(--muted); font-family: var(--mono); word-break: break-all; }
+    .stage-badge { margin-top: 8px; }
+
+    .explainer {
+      margin-top: 14px; padding: 14px 16px; border-radius: 10px;
+      background: rgba(56, 189, 248, 0.07); border: 1px solid rgba(56, 189, 248, 0.28);
+      display: grid; grid-template-columns: 2fr 1fr; gap: 16px;
+    }
+    @media (max-width: 900px) { .explainer { grid-template-columns: 1fr; } }
+    .explainer h3 { font-size: 14px; color: var(--accent); margin-bottom: 6px; }
+    .explainer p { font-size: 13px; color: #cbd5e1; }
+    .explainer .attack-box {
+      background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25);
+      border-radius: 8px; padding: 10px 12px; font-size: 12.5px; color: #fecaca;
+    }
+
+    /* Two-column layout */
+    .grid-2 { display: grid; grid-template-columns: 1.35fr 1fr; gap: 20px; }
+    @media (max-width: 1080px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px 8px; border-bottom: 1px solid var(--border); }
+    td { padding: 8px 8px; border-bottom: 1px solid rgba(37, 50, 74, 0.55); vertical-align: top; }
+    .mono { font-family: var(--mono); font-size: 11.5px; }
+    .hash { font-family: var(--mono); font-size: 11.5px; color: #93c5fd; }
+
+    .kv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .kv { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    .kv-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; }
+    .kv-val { font-size: 13.5px; font-weight: 700; margin-top: 3px; word-break: break-all; }
+
+    .feed { display: flex; flex-direction: column; gap: 8px; max-height: 290px; overflow-y: auto; }
+    .feed-item {
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 9px 11px; font-size: 12px;
+    }
+    .feed-item.bad { border-left: 3px solid var(--red); }
+    .feed-item.ok { border-left: 3px solid var(--green); }
+    .feed-item.warn { border-left: 3px solid var(--amber); }
+    .feed-top { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
+    .toast {
+      padding: 10px 14px; border-radius: 8px; font-size: 12.5px;
+      background: var(--surface-2); border: 1px solid var(--accent); display: none;
+    }
+    .toast.show { display: block; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-icon">T</div>
+      <div>
+        <h1>The Last of Trust</h1>
+        <p>Live TPM 2.0 Measured Boot, Linux IMA &amp; Redfish BMC Command Center</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="verdict-pill" class="pill warn"><span class="dot pulse"></span>Loading...</span>
+      <span id="bmc-pill" class="pill"><span class="dot"></span>BMC: ...</span>
+      <span id="live-pill" class="pill ok"><span class="dot pulse"></span>Live (2.5s)</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Controls -->
+    <section class="actions">
+      <div class="actions-group">
+        <button class="primary" onclick="doEnroll()">Enroll Baseline</button>
+        <button onclick="doAttest(false)">Run Attestation</button>
+        <button class="danger" onclick="doAttest(true)">Attest + Auto-Quarantine</button>
+        <button onclick="doReplayDemo()">Simulate Quote Replay Attack</button>
+      </div>
+      <div class="divider"></div>
+      <div class="actions-group">
+        <button class="danger" onclick="doBmcReset('ForceOff')">BMC ForceOff</button>
+        <button class="success" onclick="doBmcReset('On')">BMC Power On</button>
+        <button onclick="doBmcReset('ForceRestart')">BMC ForceRestart</button>
+      </div>
+      <div class="divider"></div>
+      <div class="actions-group">
+        <label class="toggle-label">
+          <input type="checkbox" id="chk-monitor" onchange="updateMonitorConfig()" />
+          Continuous Monitor (10s)
+        </label>
+        <label class="toggle-label">
+          <input type="checkbox" id="chk-autoq" onchange="updateMonitorConfig()" />
+          Auto-Quarantine
+        </label>
+      </div>
+    </section>
+
+    <div id="toast" class="toast"></div>
+
+    <!-- Measured Boot Trust Chain -->
+    <section class="card">
+      <div class="card-header">
+        <span class="card-title">Measured Boot &amp; Attestation Chain (Click any stage to inspect how it works)</span>
+        <span class="mono" id="last-updated" style="color: var(--muted)">--</span>
+      </div>
+      <div class="chain" id="trust-chain"></div>
+      <div class="explainer" id="stage-explainer"></div>
+    </section>
+
+    <!-- PCR Table + Cryptographic Proof / Violations -->
+    <section class="grid-2">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">TPM 2.0 Platform Configuration Registers (SHA-256)</span>
+          <span class="mono" id="ak-fp" style="color: var(--muted)">AK: --</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>PCR</th>
+              <th>What It Measures</th>
+              <th>Live SHA-256 Digest</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="pcr-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="card" style="display:flex; flex-direction:column; gap:14px;">
+        <div class="card-header" style="margin-bottom:0;">
+          <span class="card-title">Cryptographic Attestation Proof</span>
+          <span id="quote-sig-badge" class="pill">--</span>
+        </div>
+        <div class="kv-grid" id="proof-grid"></div>
+        <div>
+          <div class="card-title" style="margin-bottom:8px;">Detected Integrity Violations</div>
+          <div class="feed" id="violations-feed"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- IMA Log + BMC Audit & History -->
+    <section class="grid-2">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Recent Linux IMA Runtime Measurements (PCR 10)</span>
+          <span class="mono" id="ima-total" style="color: var(--muted)">0 files</span>
+        </div>
+        <div class="feed" id="ima-feed"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Out-of-Band BMC Redfish Audit Log &amp; Attestation History</span>
+          <span class="mono" id="bmc-fw" style="color: var(--muted)">FW: --</span>
+        </div>
+        <div class="feed" id="audit-feed"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const STAGE_DOCS = {
+      firmware: {
+        title: "Stage 1: EDK II UEFI Firmware (AAVMF / OVMF) → PCRs 0, 1, 4, 7",
+        body: "Before the OS ever starts, the virtual UEFI firmware initializes the TPM 2.0 (swtpm) and hashes its own firmware volumes (PCR 0), platform configuration (PCR 1), EFI boot manager (PCR 4), and Secure Boot state (PCR 7). Every measurement is recorded in the ACPI binary UEFI event log.",
+        attack: "Catches: Firmware rootkits, modified UEFI/Coreboot ROMs, altered Secure Boot keys, or rogue EFI bootloaders."
+      },
+      grub: {
+        title: "Stage 2: GRUB2 Bootloader → PCRs 8, 9",
+        body: "GRUB2 hashes the Linux kernel binary, initramfs, and the exact kernel command line (including ima_policy=tcb ima_hash=sha256) into PCRs 8 and 9 before handing control to Linux.",
+        attack: "Catches: Evil-maid kernel swaps, initramfs backdoors, or attackers disabling IMA/SELinux via kernel boot arguments."
+      },
+      ima: {
+        title: "Stage 3: Linux Kernel IMA (Integrity Measurement Architecture) → PCR 10",
+        body: "With CONFIG_TCG_TIS=y built into the kernel, Linux binds /dev/tpmrm0 early and measures every executed binary and root-read TCB file into /sys/kernel/security/ima/binary_runtime_measurements, extending SHA-256 PCR 10 on every new file.",
+        attack: "Catches: Runtime malware/script execution (e.g. /tmp payloads), modified system binaries, or tampered config files."
+      },
+      tpm: {
+        title: "Stage 4: TPM 2.0 Hardware Root of Trust (swtpm) & Signed Quotes",
+        body: "PCRs are write-only (extend-only) inside the TPM: new = SHA256(old || hash). Nobody—not even root in Linux—can forge or reset PCRs without rebooting. On each challenge, the TPM signs the PCR digest + a fresh 128-bit verifier nonce with its Attestation Key (AK).",
+        attack: "Catches: Quote replay attacks (stale nonce rejected by tpm2_checkquote) and forged PCR reports from a compromised OS."
+      },
+      verifier: {
+        title: "Stage 5: Remote Verifier & Out-of-Band Redfish BMC",
+        body: "tlot-verifier cryptographically verifies the TPM quote signature via tpm2_checkquote, replays the entire binary IMA log from scratch to prove it matches PCR 10 bit-for-bit, and enforces boot-PCR + IMA policies. If UNTRUSTED, it can instruct tlot-bmc over the isolated oob-net to halt the host via QMP.",
+        attack: "Guarantees: Even a completely root-compromised host cannot hide tampering or block out-of-band BMC containment."
+      }
+    };
+
+    let selectedStage = "firmware";
+    let lastState = null;
+
+    function shortHash(h, n = 16) {
+      if (!h) return "--";
+      return h.length > n ? h.slice(0, n) + "…" : h;
+    }
+
+    function showToast(msg, isError = false) {
+      const el = document.getElementById("toast");
+      el.textContent = msg;
+      el.style.borderColor = isError ? "var(--red)" : "var(--accent)";
+      el.classList.add("show");
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => el.classList.remove("show"), 7000);
+    }
+
+    function selectStage(key) {
+      selectedStage = key;
+      renderExplainer();
+      if (lastState) renderChain(lastState);
+    }
+
+    function renderExplainer() {
+      const d = STAGE_DOCS[selectedStage];
+      document.getElementById("stage-explainer").innerHTML = `
+        <div>
+          <h3>${d.title}</h3>
+          <p>${d.body}</p>
+        </div>
+        <div class="attack-box"><strong>Security Guarantee:</strong><br/>${d.attack}</div>
+      `;
+    }
+
+    function renderChain(state) {
+      const host = state.host || {};
+      const bmc = state.bmc || {};
+      const v = state.verifier || {};
+      const att = v.baseline?.last_attestation;
+      const ev = att?.eventlog;
+
+      const fwOk = bmc.reachable && bmc.firmware?.sha256;
+      const bootMismatch = (att?.boot_pcr_mismatches || []).length > 0;
+      const imaViolations = (att?.ima_violations || []).length > 0;
+      const verdict = att?.verdict || (v.enrolled ? "ENROLLED" : "NOT ENROLLED");
+
+      const stages = [
+        {
+          key: "firmware", num: "01 // FIRMWARE", name: "EDK II UEFI",
+          status: !fwOk ? "warn" : (bootMismatch ? "bad" : "ok"),
+          meta: `SHA256: ${shortHash(bmc.firmware?.sha256, 14)}\nPCR 0: ${shortHash(host.pcrs?.["0"], 14)}`,
+          badge: ev?.decoded ? `${ev.total_events} UEFI/GRUB events` : (bmc.firmware?.measured_boot ? "TPM 2.0 Active" : "Waiting")
+        },
+        {
+          key: "grub", num: "02 // BOOTLOADER", name: "GRUB2 EFI",
+          status: !host.reachable ? "warn" : (bootMismatch ? "bad" : "ok"),
+          meta: `PCR 8: ${shortHash(host.pcrs?.["8"], 14)}\nPCR 9: ${shortHash(host.pcrs?.["9"], 14)}`,
+          badge: host.health?.ima_enabled ? "ima_policy=tcb" : "Booting"
+        },
+        {
+          key: "ima", num: "03 // RUNTIME", name: "Linux Kernel IMA",
+          status: !host.reachable ? "warn" : (imaViolations || att?.ima_pcr10_replay_valid === false ? "bad" : "ok"),
+          meta: `Files: ${host.ima_count ?? 0}\nPCR 10: ${shortHash(host.pcrs?.["10"], 14)}`,
+          badge: att ? (att.ima_pcr10_replay_valid ? "PCR 10 Replay Match" : "PCR 10 Replay Fail") : "Measuring"
+        },
+        {
+          key: "tpm", num: "04 // TRUST ROOT", name: "TPM 2.0 (swtpm)",
+          status: !host.health?.tpm_device ? "warn" : (att?.quote_signature_valid === false ? "bad" : "ok"),
+          meta: `AK: ${shortHash(v.baseline?.ak_fingerprint_sha256, 14)}\nNonce: ${shortHash(att?.nonce, 14)}`,
+          badge: att?.quote_signature_valid ? "tpm2_checkquote OK" : (v.enrolled ? "AK Enrolled" : "Unenrolled")
+        },
+        {
+          key: "verifier", num: "05 // ENFORCEMENT", name: "Verifier & BMC",
+          status: verdict === "TRUSTED" ? "ok" : (verdict === "UNTRUSTED" ? "bad" : "warn"),
+          meta: `Verdict: ${verdict}\nBMC Power: ${bmc.power_state || "Unknown"}`,
+          badge: bmc.power_state === "Paused" ? "QUARANTINED" : (bmc.reachable ? "Redfish Online" : "Offline")
+        }
+      ];
+
+      document.getElementById("trust-chain").innerHTML = stages.map(s => `
+        <div class="stage ${s.status} ${selectedStage === s.key ? "selected" : ""}" onclick="selectStage('${s.key}')">
+          <div class="stage-num">${s.num}</div>
+          <div class="stage-name">${s.name}</div>
+          <div class="stage-meta">${s.meta.replace(/\n/g, "<br/>")}</div>
+          <div class="stage-badge"><span class="pill ${s.status}">${s.badge}</span></div>
+        </div>
+      `).join("");
+    }
+
+    function render(state) {
+      lastState = state;
+      const host = state.host || {};
+      const bmc = state.bmc || {};
+      const v = state.verifier || {};
+      const att = v.baseline?.last_attestation;
+      const golden = v.baseline?.golden_pcrs || {};
+
+      document.getElementById("last-updated").textContent = `Updated ${state.timestamp}`;
+
+      // Header pills
+      const vPill = document.getElementById("verdict-pill");
+      if (att?.verdict === "TRUSTED") {
+        vPill.className = "pill ok"; vPill.innerHTML = `<span class="dot"></span>TRUSTED`;
+      } else if (att?.verdict === "UNTRUSTED") {
+        vPill.className = "pill bad"; vPill.innerHTML = `<span class="dot pulse"></span>UNTRUSTED`;
+      } else {
+        vPill.className = "pill warn"; vPill.innerHTML = `<span class="dot"></span>${v.enrolled ? "ENROLLED (Not Attested)" : "NOT ENROLLED"}`;
+      }
+
+      const bPill = document.getElementById("bmc-pill");
+      bPill.className = bmc.power_state === "On" ? "pill ok" : (bmc.power_state === "Paused" ? "pill bad" : "pill warn");
+      bPill.innerHTML = `<span class="dot"></span>BMC: ${bmc.power_state || "Offline"}`;
+
+      // Sync toggles
+      document.getElementById("chk-monitor").checked = (v.config?.attest_interval_seconds || 0) > 0;
+      document.getElementById("chk-autoq").checked = Boolean(v.config?.auto_quarantine);
+
+      renderChain(state);
+
+      // PCR Table
+      document.getElementById("ak-fp").textContent = `AK: ${shortHash(v.baseline?.ak_fingerprint_sha256, 20)}`;
+      const pcrOrder = ["0", "1", "4", "7", "8", "9", "10"];
+      const livePcrs = host.pcrs || att?.pcrs || {};
+      document.getElementById("pcr-tbody").innerHTML = pcrOrder.map(p => {
+        const desc = v.pcr_descriptions?.[p] || "";
+        const live = livePcrs[p];
+        const exp = golden[p];
+        let badge = `<span class="pill">UNENROLLED</span>`;
+        if (exp && live) {
+          if (live === exp) badge = `<span class="pill ok">MATCH</span>`;
+          else if (p === "10") badge = `<span class="pill warn">EXTENDED</span>`;
+          else badge = `<span class="pill bad">MISMATCH</span>`;
+        }
+        return `
+          <tr>
+            <td class="mono"><strong>PCR ${p}</strong></td>
+            <td>${desc}</td>
+            <td class="hash" title="${live || ""}">${shortHash(live, 28)}</td>
+            <td>${badge}</td>
+          </tr>
+        `;
+      }).join("");
+
+      // Proof Grid
+      const sigBadge = document.getElementById("quote-sig-badge");
+      if (att) {
+        sigBadge.className = att.quote_signature_valid ? "pill ok" : "pill bad";
+        sigBadge.textContent = att.quote_signature_valid ? "Signature Valid" : "Signature Invalid";
+      } else {
+        sigBadge.className = "pill"; sigBadge.textContent = "No Quote Yet";
+      }
+
+      document.getElementById("proof-grid").innerHTML = `
+        <div class="kv">
+          <div class="kv-label">IMA Binary PCR 10 Replay</div>
+          <div class="kv-val" style="color:${att?.ima_pcr10_replay_valid ? "var(--green)" : "var(--amber)"}">
+            ${att ? (att.ima_pcr10_replay_valid ? `VERIFIED (${att.ima_replayed_entries} entries)` : "FAILED") : "--"}
+          </div>
+        </div>
+        <div class="kv">
+          <div class="kv-label">Latest Challenge Nonce</div>
+          <div class="kv-val mono">${shortHash(att?.nonce, 24)}</div>
+        </div>
+        <div class="kv">
+          <div class="kv-label">Host Kernel / Arch</div>
+          <div class="kv-val">${host.health ? `${host.health.kernel} (${host.health.arch})` : (bmc.power_state === "Paused" ? "CPU Halted (Quarantined)" : "Unreachable")}</div>
+        </div>
+        <div class="kv">
+          <div class="kv-label">Secure Boot / Auth</div>
+          <div class="kv-val">${host.health ? `SB: ${host.health.secure_boot ? "ON" : "OFF"} | Auth: ${host.health.auth_enabled ? "ON" : "OFF"}` : "--"}</div>
+        </div>
+      `;
+
+      // Violations Feed
+      const violations = att?.ima_violations || [];
+      const bootDiffs = att?.boot_pcr_mismatches || [];
+      const vFeed = document.getElementById("violations-feed");
+      if (!att) {
+        vFeed.innerHTML = `<div class="feed-item">Click <strong>Enroll Baseline</strong> then <strong>Run Attestation</strong> to verify the host.</div>`;
+      } else if (violations.length === 0 && bootDiffs.length === 0 && att.ima_pcr10_replay_valid) {
+        vFeed.innerHTML = `<div class="feed-item ok"><strong>Zero violations detected.</strong> All boot PCRs match baseline and every binary IMA measurement cryptographically replays to TPM PCR 10.</div>`;
+      } else {
+        vFeed.innerHTML = [
+          ...bootDiffs.map(d => `<div class="feed-item bad"><div class="feed-top"><strong>BOOT PCR ${d.pcr} MISMATCH</strong><span class="mono">${d.description}</span></div><div class="mono">Expected ${shortHash(d.expected, 20)} ≠ Actual ${shortHash(d.actual, 20)}</div></div>`),
+          ...violations.map(iv => `<div class="feed-item bad"><div class="feed-top"><strong>${iv.reason}</strong><span class="mono">${shortHash(iv.actual_hash, 22)}</span></div><div class="mono">${iv.path}</div></div>`)
+        ].join("");
+      }
+
+      // IMA Feed
+      document.getElementById("ima-total").textContent = `${host.ima_count ?? 0} measured files`;
+      const imaEntries = (host.ima_recent || []).slice().reverse();
+      document.getElementById("ima-feed").innerHTML = imaEntries.length
+        ? imaEntries.map(e => `
+            <div class="feed-item ${e.path.startsWith("/tmp/") ? "bad" : "ok"}">
+              <div class="feed-top"><span class="mono"><strong>${e.path}</strong></span><span class="mono" style="color:var(--muted)">PCR ${e.pcr}</span></div>
+              <div class="hash">${e.file_hash}</div>
+            </div>`).join("")
+        : `<div class="feed-item">No IMA entries available (host may be paused or booting).</div>`;
+
+      // BMC Audit Feed
+      document.getElementById("bmc-fw").textContent = `FW: ${shortHash(bmc.firmware?.sha256, 16)}`;
+      const audits = (bmc.audit_entries || []).slice().reverse();
+      document.getElementById("audit-feed").innerHTML = audits.length
+        ? audits.map(a => `
+            <div class="feed-item ${a.Severity === "Critical" ? "bad" : "ok"}">
+              <div class="feed-top"><strong>${a.Name}</strong><span class="mono" style="color:var(--muted)">${a.Created}</span></div>
+              <div>${a.Message}</div>
+            </div>`).join("")
+        : `<div class="feed-item">No BMC audit entries yet.</div>`;
+    }
+
+    async function refresh() {
+      try {
+        const r = await fetch("/api/v1/dashboard");
+        if (r.ok) render(await r.json());
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function doEnroll() {
+      showToast("Enrolling TPM 2.0 Attestation Key & golden baseline...");
+      const r = await fetch("/api/v1/enroll", { method: "POST" });
+      const data = await r.json();
+      if (r.ok) showToast(`Enrolled! AK=${shortHash(data.ak_fingerprint_sha256, 16)}, IMA entries=${data.ima_entry_count}`);
+      else showToast(`Enrollment failed: ${data.error}`, true);
+      refresh();
+    }
+
+    async function doAttest(quarantine) {
+      showToast(quarantine ? "Running TPM 2.0 attestation (with auto-quarantine)..." : "Challenging host with fresh nonce...");
+      const r = await fetch("/api/v1/attest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quarantine })
+      });
+      const data = await r.json();
+      if (data.verdict === "TRUSTED") showToast(`TRUSTED! Quote verified & IMA PCR 10 replayed (${data.ima_replayed_entries} entries).`);
+      else showToast(`UNTRUSTED! Violations=${(data.ima_violations||[]).length}${data.quarantine?.quarantined ? " — HOST QUARANTINED VIA BMC!" : ""}`, true);
+      refresh();
+    }
+
+    async function doReplayDemo() {
+      showToast("Testing TPM 2.0 quote replay attack...");
+      const r = await fetch("/api/v1/demo/replay", { method: "POST" });
+      const data = await r.json();
+      if (r.ok && data.original_quote_valid && !data.replayed_quote_accepted) {
+        showToast(`Replay Attack Blocked! Original quote valid=true, replayed quote with fresh nonce accepted=false.`);
+      } else {
+        showToast(`Replay demo error: ${data.error || JSON.stringify(data)}`, true);
+      }
+    }
+
+    async function doBmcReset(resetType) {
+      showToast(`Sending Redfish ComputerSystem.Reset (${resetType}) to tlot-bmc...`);
+      const r = await fetch("/api/v1/bmc/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ResetType: resetType })
+      });
+      const data = await r.json();
+      if (r.ok) showToast(`BMC Redfish: ${data.message}`);
+      else showToast(`BMC error: ${data.error}`, true);
+      setTimeout(refresh, 500);
+    }
+
+    async function updateMonitorConfig() {
+      const enabled = document.getElementById("chk-monitor").checked;
+      const autoq = document.getElementById("chk-autoq").checked;
+      await fetch("/api/v1/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attest_interval_seconds: enabled ? 10 : 0, auto_quarantine: autoq })
+      });
+      showToast(`Monitor updated: polling=${enabled ? "10s" : "off"}, auto_quarantine=${autoq}`);
+    }
+
+    renderExplainer();
+    refresh();
+    setInterval(refresh, 2500);
+  </script>
+</body>
+</html>

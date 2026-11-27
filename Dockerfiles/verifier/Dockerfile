@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /opt/verifier /var/lib/verifier /logs
 
 COPY verifier_server.py /opt/verifier/verifier_server.py
+COPY dashboard.html /opt/verifier/dashboard.html
 RUN chmod +x /opt/verifier/verifier_server.py
 
 WORKDIR /opt/verifier

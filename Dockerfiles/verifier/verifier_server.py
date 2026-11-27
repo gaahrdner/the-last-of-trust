@@ -39,6 +39,7 @@ PORT = int(os.environ.get("VERIFIER_PORT", "8888"))
 STATE_DIR = Path("/var/lib/verifier")
 BASELINE_FILE = STATE_DIR / "baseline.json"
 AK_PEM_FILE = STATE_DIR / "host_ak.pem"
+DASHBOARD_FILE = Path("/opt/verifier/dashboard.html")
 DEFAULT_PCRS = "0,1,4,7,8,9,10"
 
 runtime_config = {
@@ -442,6 +443,101 @@ def background_monitor_loop():
             print(f"[tlot-verifier] [monitor] error: {exc}", flush=True)
 
 
+def build_dashboard_state():
+    """Aggregate live Host, BMC, and Verifier state for the real-time UI."""
+    # 1. Host telemetry (gracefully handles paused/quarantined host)
+    host_info = {"reachable": False}
+    try:
+        health = http_json(f"{HOST_AGENT_URL}/health", timeout=3)
+        pcrs = http_json(f"{HOST_AGENT_URL}/tpm/pcrs", timeout=5)
+        ima = http_json(f"{HOST_AGENT_URL}/ima/log", timeout=5)
+        host_info = {
+            "reachable": True,
+            "health": health,
+            "pcrs": pcrs.get("pcrs", {}),
+            "ima_count": ima.get("count", 0),
+            "ima_recent": ima.get("entries", [])[-12:],
+        }
+    except Exception as exc:
+        host_info = {"reachable": False, "error": str(exc)}
+
+    # 2. BMC telemetry via Redfish
+    bmc_info = {"reachable": False}
+    try:
+        sys_data = bmc_request("/redfish/v1/Systems/host", method="GET", timeout=3)
+        fw_data = bmc_request(
+            "/redfish/v1/UpdateService/FirmwareInventory/host-firmware",
+            method="GET",
+            timeout=3,
+        )
+        audit_data = bmc_request(
+            "/redfish/v1/Managers/bmc/LogServices/Audit/Entries",
+            method="GET",
+            timeout=3,
+        )
+        bmc_info = {
+            "reachable": True,
+            "power_state": sys_data.get("PowerState", "Unknown"),
+            "qmp_status": sys_data.get("Oem", {}).get("TheLastOfTrust", {}).get("QmpStatus", "unknown"),
+            "bios_version": sys_data.get("BiosVersion", "Unknown"),
+            "cpu_count": sys_data.get("ProcessorSummary", {}).get("Count", 0),
+            "memory_gib": sys_data.get("MemorySummary", {}).get("TotalSystemMemoryGiB", 0),
+            "firmware": fw_data.get("Oem", {}).get("TheLastOfTrust", {}),
+            "audit_entries": audit_data.get("Members", [])[-20:],
+        }
+    except Exception as exc:
+        bmc_info = {"reachable": False, "error": str(exc)}
+
+    # 3. Verifier state
+    baseline_summary = None
+    if BASELINE_FILE.exists():
+        b = json.loads(BASELINE_FILE.read_text(encoding="utf-8"))
+        baseline_summary = {k: v for k, v in b.items() if k != "ima_baseline"}
+
+    with history_lock:
+        hist = list(attest_history[-25:])
+
+    return {
+        "timestamp": utc_now(),
+        "host": host_info,
+        "bmc": bmc_info,
+        "verifier": {
+            "enrolled": baseline_summary is not None,
+            "baseline": baseline_summary,
+            "config": dict(runtime_config),
+            "history": hist,
+            "pcr_descriptions": PCR_DESCRIPTIONS,
+        },
+    }
+
+
+def run_replay_attack_demo():
+    """Demonstrate TPM 2.0 quote replay rejection with a mismatched nonce."""
+    if not AK_PEM_FILE.exists():
+        raise ValueError("Enroll the host first before running the quote replay demo.")
+    old_nonce = secrets.token_hex(16)
+    fresh_nonce = secrets.token_hex(16)
+    quote = http_json(
+        f"{HOST_AGENT_URL}/tpm/quote",
+        method="POST",
+        payload={"nonce": old_nonce, "pcrs": DEFAULT_PCRS},
+    )
+    ok_old, _, _ = verify_quote_crypto(
+        AK_PEM_FILE, old_nonce, quote["message_b64"], quote["signature_b64"], quote["pcrs_bin_b64"]
+    )
+    ok_replay, stdout, stderr = verify_quote_crypto(
+        AK_PEM_FILE, fresh_nonce, quote["message_b64"], quote["signature_b64"], quote["pcrs_bin_b64"]
+    )
+    return {
+        "timestamp": utc_now(),
+        "old_nonce": old_nonce,
+        "fresh_challenge_nonce": fresh_nonce,
+        "original_quote_valid": ok_old,
+        "replayed_quote_accepted": ok_replay,
+        "rejection_reason": stderr or stdout or "Nonce mismatch in TPMS_ATTEST extraData",
+    }
+
+
 class VerifierHandler(BaseHTTPRequestHandler):
     def _send_json(self, status, payload):
         body = json.dumps(payload, indent=2).encode("utf-8")
@@ -451,11 +547,25 @@ class VerifierHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_html(self, status, html_bytes):
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(html_bytes)))
+        self.end_headers()
+        self.wfile.write(html_bytes)
+
     def log_message(self, fmt, *args):
         print(f"[tlot-verifier] {self.address_string()} - {fmt % args}", flush=True)
 
     def do_GET(self):
-        if self.path == "/health":
+        if self.path in ("/", "/index.html"):
+            if DASHBOARD_FILE.exists():
+                self._send_html(200, DASHBOARD_FILE.read_bytes())
+            else:
+                self._send_json(404, {"error": "dashboard.html not found"})
+        elif self.path == "/api/v1/dashboard":
+            self._send_json(200, build_dashboard_state())
+        elif self.path == "/health":
             self._send_json(200, {
                 "status": "ok",
                 "enrolled": BASELINE_FILE.exists(),
@@ -518,6 +628,16 @@ class VerifierHandler(BaseHTTPRequestHandler):
                     "expected_nonce": body["expected_nonce"],
                     "error": None if ok else (stderr or stdout),
                 })
+            elif self.path == "/api/v1/demo/replay":
+                self._send_json(200, run_replay_attack_demo())
+            elif self.path == "/api/v1/bmc/reset":
+                reset_type = body.get("ResetType", "")
+                res = bmc_request(
+                    "/redfish/v1/Systems/host/Actions/ComputerSystem.Reset",
+                    method="POST",
+                    payload={"ResetType": reset_type},
+                )
+                self._send_json(200, res)
             else:
                 self._send_json(404, {"error": "not found"})
         except ValueError as exc:

@@ -109,7 +109,7 @@ make test
 | `tlot-host` | `2222` | SSH to Debian guest (`lab` / `lab`) |
 | `tlot-host` | `8081` | Host attestation agent HTTP API (`/health`, `/tpm/pcrs`, `/tpm/ak`, `/tpm/quote`, `/tpm/eventlog`, `/ima/log`) |
 | `tlot-bmc` | `8443` | Redfish HTTPS API (Basic Auth `root:0penBmc`) |
-| `tlot-verifier` | `8888` | Remote attestation verifier HTTP API (`/health`, `/api/v1/status`, `/api/v1/enroll`, `/api/v1/attest`) |
+| `tlot-verifier` | `8888` | Live Web Dashboard (`http://localhost:8888`) & Remote Attestation API (`/api/v1/dashboard`, `/api/v1/enroll`, `/api/v1/attest`, `/api/v1/eventlog`) |
 
 ## Custom Coreboot Firmware (Optional, x86_64)
 

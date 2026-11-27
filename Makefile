@@ -1,4 +1,4 @@
-.PHONY: help build up down restart status logs ssh pcrs ima eventlog enroll attest history bmc-status bmc-firmware bmc-reset attack-injection attack-replay attack-quarantine test clean
+.PHONY: help build up down restart status logs ui ssh pcrs ima eventlog enroll attest history bmc-status bmc-firmware bmc-reset attack-injection attack-replay attack-quarantine test clean
 
 BMC_AUTH ?= root:0penBmc
 
@@ -22,6 +22,9 @@ status: ## Show container health and status
 
 logs: ## Follow logs from all containers
 	docker compose logs -f
+
+ui: ## Open the live web visualization dashboard in your browser
+	open http://127.0.0.1:8888 2>/dev/null || xdg-open http://127.0.0.1:8888 2>/dev/null || echo "Open http://127.0.0.1:8888"
 
 ssh: ## SSH into the measured-boot Debian host VM (password: lab)
 	ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 2222 lab@127.0.0.1
