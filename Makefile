@@ -1,4 +1,4 @@
-.PHONY: help build up down restart status logs ssh pcrs ima enroll attest tamper-demo bmc-status bmc-firmware bmc-reset test clean
+.PHONY: help build up down restart status logs ssh pcrs ima eventlog enroll attest history bmc-status bmc-firmware bmc-reset attack-injection attack-replay attack-quarantine test clean
 
 BMC_AUTH ?= root:0penBmc
 
@@ -32,11 +32,17 @@ pcrs: ## Read live TPM 2.0 SHA-256 PCRs from the host
 ima: ## Show summary of Linux IMA runtime measurements from the host
 	curl -sf http://127.0.0.1:8081/ima/log | jq '{available, count, sample: .entries[-5:]}'
 
+eventlog: ## Decode UEFI/GRUB TPM 2.0 binary event log via verifier
+	curl -sf http://127.0.0.1:8888/api/v1/eventlog | jq .
+
 enroll: ## Enroll host TPM 2.0 Attestation Key & golden PCR baseline in verifier
 	curl -sf -X POST http://127.0.0.1:8888/api/v1/enroll | jq .
 
 attest: ## Run cryptographic TPM 2.0 remote attestation against the host
 	curl -s -X POST http://127.0.0.1:8888/api/v1/attest | jq .
+
+history: ## Show recent attestation history from verifier
+	curl -sf http://127.0.0.1:8888/api/v1/history | jq .
 
 bmc-status: ## Query host state via BMC Redfish API
 	curl -skf -u $(BMC_AUTH) https://127.0.0.1:8443/redfish/v1/Systems/host | jq .
@@ -49,6 +55,15 @@ bmc-reset: ## Hard-reset the host VM via BMC Redfish ComputerSystem.Reset
 		-H 'Content-Type: application/json' \
 		-d '{"ResetType":"ForceRestart"}' \
 		https://127.0.0.1:8443/redfish/v1/Systems/host/Actions/ComputerSystem.Reset | jq .
+
+attack-injection: ## Run attack 01: untrusted runtime script injection (IMA + PCR 10)
+	./scripts/attacks/01-runtime-injection.sh
+
+attack-replay: ## Run attack 02: TPM 2.0 quote replay with stale nonce
+	./scripts/attacks/02-quote-replay.sh
+
+attack-quarantine: ## Run attack 03: tamper -> BMC ForceOff quarantine -> Redfish recovery
+	./scripts/attacks/03-bmc-quarantine.sh
 
 test: ## Run full end-to-end verification (measured boot, Redfish, attestation, tamper detection)
 	./scripts/verify.sh

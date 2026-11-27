@@ -4,7 +4,7 @@ set -euo pipefail
 HOST_URL="${HOST_URL:-http://127.0.0.1:8081}"
 BMC_URL="${BMC_URL:-https://127.0.0.1:8443}"
 VERIFIER_URL="${VERIFIER_URL:-http://127.0.0.1:8888}"
-BMC_AUTH="root:0penBmc"
+BMC_AUTH="${BMC_AUTH:-root:0penBmc}"
 
 pass() { echo "  [PASS] $*"; }
 fail() { echo "  [FAIL] $*" >&2; exit 1; }
@@ -25,7 +25,7 @@ for i in $(seq 1 180); do
     sleep 3
 done
 
-echo "=== 2. Verifying real TPM 2.0 PCR measurements ==="
+echo "=== 2. Verifying real TPM 2.0 PCR measurements & IMA log ==="
 PCRS=$(curl -sf "${HOST_URL}/tpm/pcrs")
 PCR0=$(echo "$PCRS" | jq -r '.pcrs["0"]')
 PCR10=$(echo "$PCRS" | jq -r '.pcrs["10"]')
@@ -50,7 +50,7 @@ FW_VER=$(echo "$FW" | jq -r '.Version')
 [ -n "$FW_VER" ] && [ "$FW_VER" != "unknown" ] || fail "BMC firmware inventory missing SHA-256"
 pass "BMC FirmwareInventory host-firmware version=${FW_VER}"
 
-echo "=== 4. Enrolling host & running cryptographic TPM 2.0 attestation ==="
+echo "=== 4. Enrolling host & verifying TPM 2.0 quote + IMA PCR 10 replay + UEFI eventlog ==="
 ENROLL=$(curl -sf -X POST "${VERIFIER_URL}/api/v1/enroll")
 AK_FP=$(echo "$ENROLL" | jq -r '.ak_fingerprint_sha256')
 pass "Enrolled TPM 2.0 AK fingerprint=${AK_FP:0:24}..."
@@ -58,24 +58,21 @@ pass "Enrolled TPM 2.0 AK fingerprint=${AK_FP:0:24}..."
 ATTEST=$(curl -sf -X POST "${VERIFIER_URL}/api/v1/attest")
 VERDICT=$(echo "$ATTEST" | jq -r '.verdict')
 SIG_OK=$(echo "$ATTEST" | jq -r '.quote_signature_valid')
+IMA_REPLAY=$(echo "$ATTEST" | jq -r '.ima_pcr10_replay_valid')
+EV_DECODED=$(echo "$ATTEST" | jq -r '.eventlog.decoded')
+EV_COUNT=$(echo "$ATTEST" | jq -r '.eventlog.total_events')
 [ "$VERDICT" = "TRUSTED" ] && [ "$SIG_OK" = "true" ] || fail "Expected TRUSTED attestation, got: $ATTEST"
-pass "Cryptographic TPM 2.0 quote verified: verdict=${VERDICT}, nonce=$(echo "$ATTEST" | jq -r '.nonce')"
+[ "$IMA_REPLAY" = "true" ] || fail "Expected cryptographic IMA PCR 10 replay to pass"
+[ "$EV_DECODED" = "true" ] && [ "$EV_COUNT" -gt 0 ] || fail "Expected UEFI TPM 2.0 eventlog to decode"
+pass "TPM 2.0 quote verified: verdict=${VERDICT}, ima_pcr10_replay=${IMA_REPLAY}, uefi_events=${EV_COUNT}"
 
-echo "=== 5. Tamper detection test (executing untrusted binary on host) ==="
-docker exec tlot-host ssh -i /var/lib/host/ssh/id_ed25519 \
-    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-    lab@127.0.0.1 \
-    'echo "#!/bin/sh" > /tmp/untrusted_payload.sh && echo "echo pwned" >> /tmp/untrusted_payload.sh && chmod +x /tmp/untrusted_payload.sh && /tmp/untrusted_payload.sh >/dev/null'
+echo "=== 5. Verifying TPM 2.0 quote replay attack rejection ==="
+./scripts/attacks/02-quote-replay.sh >/dev/null
+pass "Quote replay with stale nonce rejected (HTTP 401)"
 
-HTTP_CODE=$(curl -s -o /tmp/tlot_tamper.json -w "%{http_code}" -X POST "${VERIFIER_URL}/api/v1/attest")
-TAMPER_VERDICT=$(jq -r '.verdict' /tmp/tlot_tamper.json)
-MISMATCH_PCRS=$(jq -c '[.pcr_mismatches[].pcr]' /tmp/tlot_tamper.json)
-DETECTED_FILE=$(jq -r '.ima_new_entries[] | select(.path | contains("untrusted_payload.sh")) | .path' /tmp/tlot_tamper.json | head -n1)
-rm -f /tmp/tlot_tamper.json
-
-[ "$HTTP_CODE" = "409" ] && [ "$TAMPER_VERDICT" = "UNTRUSTED" ] || fail "Expected UNTRUSTED (409) after tamper, got HTTP ${HTTP_CODE} (${TAMPER_VERDICT})"
-[ -n "$DETECTED_FILE" ] || fail "Expected IMA diff to flag untrusted_payload.sh"
-pass "Tamper detected! verdict=${TAMPER_VERDICT}, drifted PCRs=${MISMATCH_PCRS}, flagged=${DETECTED_FILE}"
+echo "=== 6. Verifying tamper detection & BMC out-of-band auto-quarantine ==="
+./scripts/attacks/03-bmc-quarantine.sh >/dev/null
+pass "Untrusted execution detected, host quarantined via BMC ForceOff, and recovered via Redfish On"
 
 echo ""
 echo "ALL END-TO-END CHECKS PASSED!"
