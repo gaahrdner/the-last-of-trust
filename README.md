@@ -79,13 +79,28 @@ make test
 |---------|-------------|
 | `make pcrs` | Read live TPM 2.0 SHA-256 PCRs (0–10) from the host |
 | `make ima` | Inspect the Linux IMA runtime measurement log |
+| `make eventlog` | Decode the UEFI/GRUB TPM 2.0 binary event log via `tpm2_eventlog` |
 | `make enroll` | Enroll the host's TPM 2.0 AK and golden PCR/IMA baseline |
-| `make attest` | Challenge the host with a fresh nonce and verify the TPM 2.0 quote |
+| `make attest` | Challenge the host with a fresh nonce, verify `tpm2_checkquote` & replay IMA PCR 10 |
+| `make history` | View recent attestation history from the verifier |
 | `make bmc-status` | Query live host state via Redfish (`https://localhost:8443/redfish/v1/Systems/host`) |
 | `make bmc-firmware` | Inspect active host firmware SHA-256 via Redfish `FirmwareInventory` |
 | `make bmc-reset` | Hard-reset the host VM out-of-band via Redfish `ComputerSystem.Reset` |
-| `make ssh` | SSH into the Debian guest (`lab` / `lab` on port `2222`) |
+| `make attack-injection` | Run Attack 01: untrusted runtime script injection (caught by IMA + PCR 10) |
+| `make attack-replay` | Run Attack 02: TPM 2.0 quote replay with stale nonce (rejected with HTTP 401) |
+| `make attack-quarantine` | Run Attack 03: tamper -> verifier BMC `ForceOff` quarantine -> Redfish `On` recovery |
+| `make ssh` | SSH into the guest (`lab` / `lab` on port `2222`) |
 | `make clean` | Stop containers and wipe persistent VM, TPM, and verifier volumes |
+
+## Configuration Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SECURE_BOOT` | `false` | Set `true` to boot with EDK II Secure Boot firmware (`*.secboot.fd` + `*.ms.fd`) |
+| `TLOT_AGENT_TOKEN` | _(empty)_ | Optional shared Bearer token securing `tlot-agent` <-> `tlot-verifier` requests |
+| `AUTO_QUARANTINE` | `false` | Set `true` to automatically halt `tlot-host` via BMC Redfish on attestation failure |
+| `ATTEST_INTERVAL_SECONDS` | `0` | Background continuous attestation interval in seconds (`0` disables polling) |
+| `HOST_AGENT_PORT` | `8081` | Host port mapped to `tlot-agent` (`8080` inside container) |
 
 ## Exposed Ports
 

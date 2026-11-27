@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint shell scripts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck -e SC1091,SC2086 \
+            Dockerfiles/host/scripts/setup_tpm.sh \
+            Dockerfiles/host/scripts/start_host.sh \
+            scripts/verify.sh \
+            scripts/attacks/*.sh
+
+      - name: Syntax-check Python services
+        run: |
+          python3 -m py_compile \
+            Dockerfiles/host/scripts/tlot_agent.py \
+            Dockerfiles/bmc/scripts/bmc_server.py \
+            Dockerfiles/verifier/verifier_server.py
+
+      - name: Validate Docker Compose config
+        run: docker compose config -q
+
+      - name: Build all container images
+        run: docker compose build
