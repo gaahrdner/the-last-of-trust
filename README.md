@@ -65,11 +65,17 @@ make build
 # 2. Start the stack
 make up
 
-# 3. Run the end-to-end verification suite
+# 3. Open the live web visualization dashboard
+make ui   # http://localhost:8888
+
+# 4. Run the end-to-end verification suite
 #    (waits for first-boot cloud-init + IMA reboot, verifies TPM 2.0 PCRs,
-#     Redfish BMC, cryptographic TPM 2.0 quote attestation, and tamper detection)
+#     IMA binary PCR 10 replay, UEFI event log, Redfish BMC, quote replay
+#     rejection, and tamper detection with BMC auto-quarantine)
 make test
 ```
+
+See [docs/MEASURED_BOOT_ARCHITECTURE.md](docs/MEASURED_BOOT_ARCHITECTURE.md) for a deep dive into the PCR map, cryptographic guarantees, and network isolation.
 
 > **Note:** On the very first boot, `tlot-host` downloads the official Ubuntu 24.04 cloud image (~600 MB), installs `tpm2-tools` via `cloud-init`, enables `ima_policy=tcb ima_hash=sha256` in GRUB, and automatically reboots once to activate IMA. Subsequent starts boot directly from the persistent volume.
 
@@ -77,6 +83,7 @@ make test
 
 | Command | Description |
 |---------|-------------|
+| `make ui` | Open the real-time web visualization dashboard (`http://localhost:8888`) |
 | `make pcrs` | Read live TPM 2.0 SHA-256 PCRs (0–10) from the host |
 | `make ima` | Inspect the Linux IMA runtime measurement log |
 | `make eventlog` | Decode the UEFI/GRUB TPM 2.0 binary event log via `tpm2_eventlog` |
@@ -106,8 +113,8 @@ make test
 
 | Service | Host Port | Description |
 |---------|-----------|-------------|
-| `tlot-host` | `2222` | SSH to Debian guest (`lab` / `lab`) |
-| `tlot-host` | `8081` | Host attestation agent HTTP API (`/health`, `/tpm/pcrs`, `/tpm/ak`, `/tpm/quote`, `/tpm/eventlog`, `/ima/log`) |
+| `tlot-host` | `2222` | SSH to Ubuntu 24.04 guest (`lab` / `lab`) |
+| `tlot-host` | `8081` | Host attestation agent HTTP API (`/health`, `/tpm/pcrs`, `/tpm/ak`, `/tpm/quote`, `/tpm/eventlog`, `/ima/log`, `/ima/binary`) |
 | `tlot-bmc` | `8443` | Redfish HTTPS API (Basic Auth `root:0penBmc`) |
 | `tlot-verifier` | `8888` | Live Web Dashboard (`http://localhost:8888`) & Remote Attestation API (`/api/v1/dashboard`, `/api/v1/enroll`, `/api/v1/attest`, `/api/v1/eventlog`) |
 

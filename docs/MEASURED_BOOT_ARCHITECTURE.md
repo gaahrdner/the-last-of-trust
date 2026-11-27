@@ -36,7 +36,8 @@
 └──────────────────────────────────┬───────────────────────────────────┘
                                    ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│ 5. Remote Verifier (`tlot-verifier`, port 8888)                      │
+│ 5. Remote Verifier & Live UI (`tlot-verifier`, port 8888)            │
+│    - Serves real-time Trust Chain dashboard at http://localhost:8888 │
 │    - Enrolls AK public key + golden boot PCRs & IMA allowlist        │
 │    - Challenges host with 128-bit random nonce (`tpm2_checkquote`)   │
 │    - Replays binary IMA log to cryptographically verify PCR 10       │
