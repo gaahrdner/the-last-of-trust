@@ -630,6 +630,14 @@ class VerifierHandler(BaseHTTPRequestHandler):
                 })
             elif self.path == "/api/v1/demo/replay":
                 self._send_json(200, run_replay_attack_demo())
+            elif self.path == "/api/v1/demo/tamper":
+                tamper = http_json(f"{HOST_AGENT_URL}/demo/tamper", method="POST", payload={})
+                if not BASELINE_FILE.exists():
+                    enroll_host()
+                q_flag = body.get("quarantine") if isinstance(body, dict) else False
+                result = attest_host(quarantine_on_fail=q_flag)
+                code = 200 if result["verdict"] == "TRUSTED" else 409
+                self._send_json(code, {"tamper": tamper, **result})
             elif self.path == "/api/v1/bmc/reset":
                 reset_type = body.get("ResetType", "")
                 res = bmc_request(

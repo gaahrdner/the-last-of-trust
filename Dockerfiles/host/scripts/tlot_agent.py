@@ -259,6 +259,16 @@ class AgentHandler(BaseHTTPRequestHandler):
                 pcrs = data.get("pcrs", "0,1,4,7,8,9,10")
                 quote = generate_quote(nonce, pcrs)
                 self._send_json(200, quote)
+            elif self.path == "/demo/tamper":
+                ts = int(os.times().elapsed * 1000)
+                script_path = Path(f"/tmp/ui_tamper_{ts}.sh")
+                script_path.write_text("#!/bin/sh\necho simulated-untrusted-payload\n", encoding="utf-8")
+                script_path.chmod(0o755)
+                out = run_cmd([str(script_path)])
+                self._send_json(200, {
+                    "executed": str(script_path),
+                    "output": out.strip(),
+                })
             else:
                 self._send_json(404, {"error": "not found"})
         except ValueError as exc:

@@ -363,8 +363,9 @@
     </header>
 
     <nav class="toolbar" aria-label="Attestation and BMC controls">
-      <button class="primary" onclick="doEnroll()">Enroll baseline</button>
+      <button class="primary" onclick="doEnroll()">Enroll &amp; trust</button>
       <button onclick="doAttest(false)">Run attestation</button>
+      <button class="danger" onclick="doTamperDemo()">Simulate tamper</button>
       <button class="danger" onclick="doAttest(true)">Attest + quarantine</button>
       <button onclick="doReplayDemo()">Test quote replay</button>
       <span class="toolbar-sep" aria-hidden="true"></span>
@@ -732,11 +733,34 @@
     }
 
     async function doEnroll() {
-      showNotice("Enrolling TPM 2.0 Attestation Key and golden baseline…");
+      showNotice("Enrolling TPM 2.0 Attestation Key and verifying clean baseline…");
       const r = await fetch("/api/v1/enroll", { method: "POST" });
       const d = await r.json();
-      if (r.ok) showNotice(`Baseline enrolled: AK ${shortHex(d.ak_fingerprint_sha256, 16)} · ${d.ima_entry_count} IMA files.`);
-      else showNotice(`Enrollment failed: ${d.error}`, true);
+      if (!r.ok) { showNotice(`Enrollment failed: ${d.error}`, true); return; }
+      const ar = await fetch("/api/v1/attest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quarantine: false })
+      });
+      const ad = await ar.json();
+      if (ad.verdict === "TRUSTED") showNotice(`TRUSTED · baseline enrolled (${d.ima_entry_count} IMA files) and quote verified.`);
+      else showNotice(`Enrolled, but attestation returned ${ad.verdict}.`, true);
+      refresh();
+    }
+
+    async function doTamperDemo() {
+      showNotice("Executing untrusted payload in /tmp inside the guest VM…");
+      const r = await fetch("/api/v1/demo/tamper", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quarantine: false })
+      });
+      const d = await r.json();
+      if (d.verdict === "UNTRUSTED") {
+        showNotice(`UNTRUSTED · IMA detected ${d.tamper?.executed} and extended TPM 2.0 PCR 10.`, true);
+      } else {
+        showNotice(`Tamper demo error: ${d.error || d.verdict}`, true);
+      }
       refresh();
     }
 
